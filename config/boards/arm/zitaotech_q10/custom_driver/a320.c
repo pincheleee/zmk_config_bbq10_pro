@@ -23,6 +23,10 @@
 
 #include "trackpad_led.h"
 
+#ifndef CONFIG_A320_LOG_LEVEL
+#define CONFIG_A320_LOG_LEVEL LOG_LEVEL_INF
+#endif
+
 LOG_MODULE_REGISTER(a320, CONFIG_A320_LOG_LEVEL);
 
 /* =========================
