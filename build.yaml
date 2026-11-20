@@ -1,5 +1,5 @@
 include:
   - board: zitaotech_q10
-
-  - board: zitaotech_q10
-    shield: settings_reset
+    snippet: zmk-usb-logging
+    cmake-args: -DCONFIG_ZMK_USB_LOGGING=y -DCONFIG_ZMK_STUDIO=n
+    artifact-name: zitaotech_q10-debug

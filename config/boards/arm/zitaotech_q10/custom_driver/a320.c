@@ -108,6 +108,8 @@ static int key_listener_cb(const zmk_event_t *eh) {
     if (!ev)
         return 0;
 
+    printk("DBG %lld key pos=%d %s\n", k_uptime_get(), ev->position, ev->state ? "down" : "up");
+
     if (ev->position == 37) {
         ctrl_pressed = ev->state;
     }
@@ -145,8 +147,16 @@ static int a320_read_motion_3b(const struct device *dev, int16_t *dx, int16_t *d
 
     /* Read Motion (0x02) first so the sensor latches the deltas, then
      * Delta_X (0x03) and Delta_Y (0x04) one register at a time. */
-    if (i2c_reg_read_byte_dt(&cfg->i2c, 0x02, &motion) < 0)
+    if (i2c_reg_read_byte_dt(&cfg->i2c, 0x02, &motion) < 0) {
+        printk("DBG %lld i2c read 0x02 failed\n", k_uptime_get());
         return -EIO;
+    }
+
+    static uint8_t last_motion = 0xFF;
+    if (motion != last_motion) {
+        printk("DBG %lld motion=0x%02X\n", k_uptime_get(), motion);
+        last_motion = motion;
+    }
 
     if (!(motion & BIT(7))) {
         *dx = *dy = 0;
@@ -156,6 +166,8 @@ static int a320_read_motion_3b(const struct device *dev, int16_t *dx, int16_t *d
     if (i2c_reg_read_byte_dt(&cfg->i2c, 0x03, &x) < 0 ||
         i2c_reg_read_byte_dt(&cfg->i2c, 0x04, &y) < 0)
         return -EIO;
+
+    printk("DBG %lld dX=%d dY=%d\n", k_uptime_get(), (int8_t)x, (int8_t)y);
 
     *dx = -(int8_t)y;
     *dy = -(int8_t)x;
@@ -192,6 +204,27 @@ static void a320_poll_work_handler(struct k_work *work) {
      * units the pin never asserts while sliding, so movement piles up in the
      * sensor and only gets sent on a click. */
     int16_t dx = 0, dy = 0;
+
+    {
+        static int last_pin = -1;
+        static int64_t last_status = 0;
+        int pin = gpio_pin_get(motion_gpio_dev, MOTION_GPIO_PIN);
+        if (pin != last_pin) {
+            printk("DBG %lld motion_pin=%d\n", k_uptime_get(), pin);
+            last_pin = pin;
+        }
+        if (k_uptime_get() - last_status > 3000) {
+            const struct a320_dev_config *cfg = data->dev->config;
+            uint8_t pid = 0, rev = 0, conf = 0, obs = 0;
+            i2c_reg_read_byte_dt(&cfg->i2c, 0x00, &pid);
+            i2c_reg_read_byte_dt(&cfg->i2c, 0x01, &rev);
+            i2c_reg_read_byte_dt(&cfg->i2c, 0x11, &conf);
+            i2c_reg_read_byte_dt(&cfg->i2c, 0x2E, &obs);
+            printk("DBG %lld status pid=0x%02X rev=0x%02X config=0x%02X observ=0x%02X\n",
+                   k_uptime_get(), pid, rev, conf, obs);
+            last_status = k_uptime_get();
+        }
+    }
 
     if (data->read_motion(data->dev, &dx, &dy) == 0 && (dx || dy)) {
 
