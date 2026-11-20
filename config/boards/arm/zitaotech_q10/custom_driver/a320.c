@@ -141,17 +141,24 @@ static int hid_indicators_listener(const zmk_event_t *eh) {
 
 static int a320_read_motion_3b(const struct device *dev, int16_t *dx, int16_t *dy) {
     const struct a320_dev_config *cfg = dev->config;
-    uint8_t buf[3];
-    uint8_t reg = 0x82;
+    uint8_t motion, x, y;
 
-    if (i2c_write_dt(&cfg->i2c, &reg, 1) < 0)
+    /* Read Motion (0x02) first so the sensor latches the deltas, then
+     * Delta_X (0x03) and Delta_Y (0x04) one register at a time. */
+    if (i2c_reg_read_byte_dt(&cfg->i2c, 0x02, &motion) < 0)
         return -EIO;
 
-    if (i2c_burst_read_dt(&cfg->i2c, 0x82, buf, sizeof(buf)) < 0)
+    if (!(motion & BIT(7))) {
+        *dx = *dy = 0;
+        return 0;
+    }
+
+    if (i2c_reg_read_byte_dt(&cfg->i2c, 0x03, &x) < 0 ||
+        i2c_reg_read_byte_dt(&cfg->i2c, 0x04, &y) < 0)
         return -EIO;
 
-    *dx = -(int8_t)buf[2];
-    *dy = -(int8_t)buf[1];
+    *dx = -(int8_t)y;
+    *dy = -(int8_t)x;
 
     return 0;
 }
