@@ -33,7 +33,7 @@ LOG_MODULE_REGISTER(a320, CONFIG_A320_LOG_LEVEL);
 #define SHIFT_ARROW_RELEASE_MS 20  // 
 
 #ifndef CONFIG_A320_POLL_INTERVAL_MS
-#define CONFIG_A320_POLL_INTERVAL_MS 2
+#define CONFIG_A320_POLL_INTERVAL_MS 5
 #endif
 
 /* =========================
@@ -181,66 +181,64 @@ static void a320_poll_work_handler(struct k_work *work) {
     struct k_work_delayable *dwork = CONTAINER_OF(work, struct k_work_delayable, work);
     struct a320_data *data = CONTAINER_OF(dwork, struct a320_data, poll_work);
 
-    int pin_state = gpio_pin_get(motion_gpio_dev, MOTION_GPIO_PIN);
+    /* Read the sensor every poll instead of gating on the motion pin: on some
+     * units the pin never asserts while sliding, so movement piles up in the
+     * sensor and only gets sent on a click. */
+    int16_t dx = 0, dy = 0;
 
-    if (pin_state == 0) {
+    if (data->read_motion(data->dev, &dx, &dy) == 0 && (dx || dy)) {
 
-        int16_t dx = 0, dy = 0;
+        bool capslock = current_indicators & HID_INDICATORS_CAPS_LOCK;
 
-        if (data->read_motion(data->dev, &dx, &dy) == 0 && (dx || dy)) {
+        if (ctrl_pressed) {
+            dx /= 2;
+            dy /= 2;
+        }
 
-            bool capslock = current_indicators & HID_INDICATORS_CAPS_LOCK;
+        /* ===== SHIFT → ARROW MODE ===== */
+        /*
+        if (shift_pressed) {
 
-            if (ctrl_pressed) {
-                dx /= 2;
-                dy /= 2;
-            }
+            int64_t now = k_uptime_get();
 
-            /* ===== SHIFT → ARROW MODE ===== */
-            /*
-            if (shift_pressed) {
+            if (!arrow_pressed && (now - last_arrow_time >= SHIFT_ARROW_DEBOUNCE_MS)) {
 
-                int64_t now = k_uptime_get();
+                uint16_t keycode;
 
-                if (!arrow_pressed && (now - last_arrow_time >= SHIFT_ARROW_DEBOUNCE_MS)) {
-
-                    uint16_t keycode;
-
-                    if (abs(dx) > abs(dy)) {
-                        keycode = (dx > 0) ? INPUT_BTN_1 : INPUT_BTN_1;
-                    } else {
-                        keycode = (dy > 0) ? INPUT_BTN_1 : INPUT_BTN_1;
-                    }
-
-                    input_report_key(data->dev, keycode, 1, true, K_FOREVER);
-
-                    arrow_pressed = true;
-                    trackpoint_dev_ref = data->dev;
-                    last_arrow_time = now;
-
-                    k_work_schedule(&arrow_release_work, K_MSEC(SHIFT_ARROW_RELEASE_MS));
+                if (abs(dx) > abs(dy)) {
+                    keycode = (dx > 0) ? INPUT_BTN_1 : INPUT_BTN_1;
+                } else {
+                    keycode = (dy > 0) ? INPUT_BTN_1 : INPUT_BTN_1;
                 }
 
-                goto reschedule;
+                input_report_key(data->dev, keycode, 1, true, K_FOREVER);
+
+                arrow_pressed = true;
+                trackpoint_dev_ref = data->dev;
+                last_arrow_time = now;
+
+                k_work_schedule(&arrow_release_work, K_MSEC(SHIFT_ARROW_RELEASE_MS));
             }
+
+            goto reschedule;
+        }
 */
-            /* ===== Normal mouse mode ===== */
+        /* ===== Normal mouse mode ===== */
 
-            if (!capslock) {
-                uint8_t brt = indicator_tp_get_last_valid_brightness();
-                float factor = 0.4f + 0.01f * brt;
+        if (!capslock) {
+            uint8_t brt = indicator_tp_get_last_valid_brightness();
+            float factor = 0.4f + 0.01f * brt;
 
-                dx = dx * 3 / 2 * factor;
-                dy = dy * 3 / 2 * factor;
-            }
+            dx = dx * 3 / 2 * factor;
+            dy = dy * 3 / 2 * factor;
+        }
 
-            if (capslock) {
-                input_report_rel(data->dev, INPUT_REL_WHEEL, -dy / 16, true, K_FOREVER);
-            } else {
-                input_report_rel(data->dev, INPUT_REL_X, dx, false, K_FOREVER);
-                input_report_rel(data->dev, INPUT_REL_Y, dy, true, K_FOREVER);
-                touched = true;
-            }
+        if (capslock) {
+            input_report_rel(data->dev, INPUT_REL_WHEEL, -dy / 16, true, K_FOREVER);
+        } else {
+            input_report_rel(data->dev, INPUT_REL_X, dx, false, K_FOREVER);
+            input_report_rel(data->dev, INPUT_REL_Y, dy, true, K_FOREVER);
+            touched = true;
         }
     } else {
         touched = false;
