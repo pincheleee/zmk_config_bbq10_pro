@@ -309,7 +309,9 @@ static int a320_init(const struct device *dev) {
     if (!device_is_ready(motion_gpio_dev))
         return -ENODEV;
 
-    gpio_pin_configure(motion_gpio_dev, MOTION_GPIO_PIN, GPIO_INPUT | GPIO_PULL_UP);
+    /* No pull-up: MOTION is a 1.8 V signal wired straight to this 3.3 V pin, and
+     * pulling it to 3.3 V back-feeds the sensor supply until it stops answering. */
+    gpio_pin_configure(motion_gpio_dev, MOTION_GPIO_PIN, GPIO_INPUT);
 
     switch (cfg->i2c.addr) {
     case 0x3B:
